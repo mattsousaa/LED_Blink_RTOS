@@ -54,6 +54,12 @@
 /* BIOS Header files */
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
+#include <ti/sysbios/knl/Swi.h>
+#include <ti/sysbios/knl/Clock.h>
+#include <ti/sysbios/hal/Timer.h>
+#include <ti/sysbios/knl/Semaphore.h>
+#include <xdc/runtime/Timestamp.h>
+#include <xdc/runtime/System.h>
 #endif
 
 #include <stdio.h>
@@ -67,19 +73,25 @@
 
 #include <ti/board/board.h>
 
+/*Header files for HWI */
+#include <ti/sysbios/family/arm/a8/intcps/Hwi.h>
+#include <xdc/runtime/Error.h>
+#include <xdc/runtime/System.h>
+
+
+
 /**********************************************************************
  ************************** Macros ************************************
  **********************************************************************/
-#if defined(SOC_AM574x) || defined(SOC_AM572x) || defined (SOC_AM571x)
-#if defined (__TI_ARM_V7M4__)
-#define DELAY_VALUE       (0x6FFFFFU) /* Update Delay as it is not sufficent for M4 core */
-#else
 #define DELAY_VALUE       (0x6FFFFFU)
-#endif
-#else
-#define DELAY_VALUE       (0x6FFFFFU)
-#endif
+#define PROC_UNIT         (0xFFFF)
 
+#define LED_0 21
+#define LED_1 22
+#define LED_2 23
+#define LED_3 24
+#define BUTTON 28
+#define INTERRUP 98
 
 /**********************************************************************
  ************************** Internal functions ************************
@@ -192,51 +204,77 @@ void gpio_test(UArg arg0, UArg arg1)
 
 /*****************************************************************************
 ******************************************************************************
-***********TESTE PISCAR 4 LEDS EM FREQUENCIAS DISTINTAS***********************
+*************************   TASKS SEMAFORO  **********************************
 ******************************************************************************
 *****************************************************************************/
-void AppDelay(unsigned int delayVal);
+Semaphore_Struct semaphoreTask0, semaphoreTask1, semaphoreTask2, semaphoreTask3;
+Semaphore_Params semaphoreParams0, semaphoreParams1, semaphoreParams2, semaphoreParams3;
 
 void task_BlinkLed0(){
-    while(1){
-        GPIOPinWrite(GPIO_BASE_ADDR, 21, GPIO_PIN_HIGH);
-        AppDelay(DELAY_VALUE);
-        GPIOPinWrite(GPIO_BASE_ADDR, 21, GPIO_PIN_LOW);
-        AppDelay(DELAY_VALUE);
-        Task_sleep(1);
+    while (1){
+        Semaphore_pend(Semaphore_handle(&semaphoreTask0), BIOS_WAIT_FOREVER);
+        GPIO_log( "Task 0!! \n");
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_0, GPIO_PIN_HIGH); //GPAIO_BASE_ADDR é tipo GPIO 1-22
+        AppDelay(PROC_UNIT);
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_0, GPIO_PIN_LOW);
     }
+
 }
 
 void task_BlinkLed1(){
-    while(1){
-        GPIOPinWrite(GPIO_BASE_ADDR, 22, GPIO_PIN_HIGH);
-        AppDelay(2*DELAY_VALUE);
-        GPIOPinWrite(GPIO_BASE_ADDR, 22, GPIO_PIN_LOW);
-        AppDelay(2*DELAY_VALUE);
-        Task_sleep(1);
+    while (1){
+        Semaphore_pend(Semaphore_handle(&semaphoreTask1), BIOS_WAIT_FOREVER);
+        GPIO_log( "Task 1!! \n");
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_1, GPIO_PIN_HIGH);
+        AppDelay(2*PROC_UNIT);
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_1, GPIO_PIN_LOW);
+
     }
 }
 
 void task_BlinkLed2(){
-    while(1){
-        GPIOPinWrite(GPIO_BASE_ADDR, 23, GPIO_PIN_HIGH);
-        AppDelay(3*DELAY_VALUE);
-        GPIOPinWrite(GPIO_BASE_ADDR, 23, GPIO_PIN_LOW);
-        AppDelay(3*DELAY_VALUE);
-        Task_sleep(1);
+    while (1){
+        Semaphore_pend(Semaphore_handle(&semaphoreTask2), BIOS_WAIT_FOREVER);
+        GPIO_log( "Task 2!! \n");
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_2, GPIO_PIN_HIGH);
+        AppDelay(50*PROC_UNIT);
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_2, GPIO_PIN_LOW);
+
     }
 }
 
 void task_BlinkLed3(){
-    while(1){
-        GPIOPinWrite(GPIO_BASE_ADDR, 24, GPIO_PIN_HIGH);
-        AppDelay(4*DELAY_VALUE);
-        GPIOPinWrite(GPIO_BASE_ADDR, 24, GPIO_PIN_LOW);
-        AppDelay(4*DELAY_VALUE);
-        Task_sleep(1);
+    while (1){
+        Semaphore_pend(Semaphore_handle(&semaphoreTask3), BIOS_WAIT_FOREVER);
+        GPIO_log( "Task 3!! \n");
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_3, GPIO_PIN_HIGH);
+        AppDelay(1000*PROC_UNIT);
+        GPIOPinWrite(GPIO_BASE_ADDR, LED_3, GPIO_PIN_LOW);
+
     }
 }
 
+
+void createTasks(){
+
+    if((Clock_getTicks() % 1) == 0){
+        //GPIO_log( "Chamar Task 0!! \n");
+        Semaphore_post(Semaphore_handle(&semaphoreTask0));
+    }
+    if(!(Clock_getTicks() % 20)){
+        //GPIO_log( "Chamar Task 1 \n");
+        Semaphore_post(Semaphore_handle(&semaphoreTask1));
+    }
+    if(!(Clock_getTicks() % 2)){
+        //GPIO_log( "Chamar Task 2 \n");
+        Semaphore_post(Semaphore_handle(&semaphoreTask2));
+    }
+    if(!(Clock_getTicks() % 500)){
+        //GPIO_log( "Chamar Task 3 \n");
+        Semaphore_post(Semaphore_handle(&semaphoreTask3));
+    }
+
+}
 
 
 /*
@@ -246,25 +284,92 @@ int main(void){
     /* Call board init functions */
     Board_initGPIO();
 
-    Task_Params taskParams;
+    GPIO_log( "Heloo \n");
 
-    GPIODirModeSet(SOC_GPIO_1_REGS, 21, GPIO_CFG_OUTPUT);
-    GPIODirModeSet(SOC_GPIO_1_REGS, 22, GPIO_CFG_OUTPUT);
-    GPIODirModeSet(SOC_GPIO_1_REGS, 23, GPIO_CFG_OUTPUT);
-    GPIODirModeSet(SOC_GPIO_1_REGS, 24, GPIO_CFG_OUTPUT);
+    Semaphore_Params_init(&semaphoreParams0);
+    Semaphore_Params_init(&semaphoreParams1);
+    Semaphore_Params_init(&semaphoreParams2);
+    Semaphore_Params_init(&semaphoreParams3);
+    Semaphore_construct(&semaphoreTask0, 0, &semaphoreParams0);
+    Semaphore_construct(&semaphoreTask1, 0, &semaphoreParams1);
+    Semaphore_construct(&semaphoreTask2, 0, &semaphoreParams2);
+    Semaphore_construct(&semaphoreTask3, 0, &semaphoreParams3);
 
 
-    Task_Params_init(&taskParams);
-    taskParams.priority = 1;
-    taskParams.stackSize = 0x1400;
+    Task_Params taskParams0, taskParams1, taskParams2, taskParams3;
+    Task_Handle task0, task1, task2, task3;
 
-    Task_create(task_BlinkLed0, &taskParams, NULL);
-    Task_create(task_BlinkLed1, &taskParams, NULL);
-    Task_create(task_BlinkLed2, &taskParams, NULL);
-    Task_create(task_BlinkLed3, &taskParams, NULL);
+    GPIODirModeSet(SOC_GPIO_1_REGS, LED_0, GPIO_CFG_OUTPUT); //SOC_GPIO_1_REGS endereço base dos registradores do GPIO
+    GPIODirModeSet(SOC_GPIO_1_REGS, LED_1, GPIO_CFG_OUTPUT);
+    GPIODirModeSet(SOC_GPIO_1_REGS, LED_2, GPIO_CFG_OUTPUT);
+    GPIODirModeSet(SOC_GPIO_1_REGS, LED_3, GPIO_CFG_OUTPUT);
+
+    Task_Params_init(&taskParams0);
+    Task_Params_init(&taskParams1);
+    Task_Params_init(&taskParams2);
+    Task_Params_init(&taskParams3);
+
+    taskParams0.priority = 4;
+    taskParams1.priority = 3;
+    taskParams2.priority = 2;
+    taskParams3.priority = 1;
+
+    taskParams0.stackSize = 0x1400; //pilha de uso
+    taskParams1.stackSize = 0x1400;
+    taskParams2.stackSize = 0x1400;
+    taskParams3.stackSize = 0x1400;
+
+    task0 = Task_create((Task_FuncPtr)task_BlinkLed0, &taskParams0, NULL);
+    task1 = Task_create((Task_FuncPtr)task_BlinkLed1, &taskParams1, NULL);
+    task2 = Task_create((Task_FuncPtr)task_BlinkLed2, &taskParams2, NULL);
+    task3 = Task_create((Task_FuncPtr)task_BlinkLed3, &taskParams3, NULL);
+
+    //***************task0**************************
+    if (task0 == NULL) {
+        System_abort("Task create failed");
+    }else{
+        GPIO_log( "Task0 create \n");
+    }
+    //***************task1**************************
+    if (task1 == NULL) {
+        System_abort("Task create failed");
+    }else{
+        GPIO_log( "Task1 create \n");
+    }
+    //***************task2**************************
+    if (task2 == NULL) {
+        System_abort("Task create failed");
+    }else{
+        GPIO_log( "Task2 create \n");
+    }
+    //***************task3**************************
+    if (task3 == NULL) {
+        System_abort("Task create failed");
+    }else{
+        GPIO_log( "Task3 create \n");
+    }
+
+
+    Clock_Params clockParams;
+    Clock_Handle myClock;
+    Clock_Params_init(&clockParams);
+    clockParams.period = 1; //tic
+    clockParams.startFlag = TRUE;
+    clockParams.arg = (UArg)0x5555;
+    myClock = Clock_create(createTasks, 1, &clockParams, NULL);
+    if (myClock == NULL) {
+        System_abort("Clock create failed");
+    }
+    else{
+        GPIO_log("Clock Created! \n");
+    }
+
+
 
     /* Start BIOS */
-     BIOS_start();
+    BIOS_start();
+
+
 
     return (0);
 }
@@ -291,5 +396,3 @@ void AppGpioCallbackFxn(void)
     AppDelay(DELAY_VALUE);
     gpio_intr_triggered = 1;
 }
-
-
